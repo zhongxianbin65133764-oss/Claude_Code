@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文档数据提取工具</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📄 文档数据提取工具</h1>
+            <p class="subtitle">上传 PDF/Word/Excel 文件，自动提取核心数据和条款</p>
+        </header>
+
+        <main>
+            <div class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <h3>拖拽文件到此处或点击选择</h3>
+                    <p>支持 PDF、Word (.doc/.docx)、Excel (.xls/.xlsx) 格式</p>
+                    <p class="file-limit">最大文件大小: 16MB</p>
+                    <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.xls,.xlsx">
+                    <button class="btn-primary" onclick="document.getElementById('fileInput').click()">
+                        选择文件
+                    </button>
+                </div>
+
+                <div class="file-list" id="fileList"></div>
+
+                <div class="action-buttons" id="actionButtons" style="display: none;">
+                    <button class="btn-primary" id="uploadBtn" onclick="uploadFiles()">
+                        开始提取
+                    </button>
+                    <button class="btn-secondary" onclick="clearFiles()">
+                        清空列表
+                    </button>
+                </div>
+            </div>
+
+            <div class="progress-section" id="progressSection" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="progress-text" id="progressText">正在处理文件...</p>
+            </div>
+
+            <div class="result-section" id="resultSection" style="display: none;">
+                <h2>✅ 提取完成</h2>
+                <div class="result-info" id="resultInfo"></div>
+                <button class="btn-success" id="downloadBtn">
+                    下载Excel文件
+                </button>
+                <button class="btn-secondary" onclick="resetApp()">
+                    提取新文件
+                </button>
+            </div>
+
+            <div class="error-section" id="errorSection" style="display: none;">
+                <h2>❌ 出错了</h2>
+                <p class="error-message" id="errorMessage"></p>
+                <button class="btn-secondary" onclick="resetApp()">
+                    重新开始
+                </button>
+            </div>
+
+            <div class="history-section">
+                <h2>📋 历史文件</h2>
+                <div class="history-list" id="historyList">
+                    <p class="empty-message">暂无历史文件</p>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>© 2024 文档数据提取工具 | 支持多文件批量处理</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
