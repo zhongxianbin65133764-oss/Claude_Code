@@ -1,0 +1,335 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关联
+  createdFunds     Fund[]         @relation("FundCreator")
+  createdProjects  Project[]      @relation("ProjectCreator")
+  approvalRecords  ApprovalRecord[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  USER
+}
+
+// 基金表
+model Fund {
+  id             String     @id @default(uuid())
+  name           String
+  code           String     @unique
+  type           FundType
+  totalSize      Decimal    @db.Decimal(15, 2)
+  raisedAmount   Decimal    @default(0) @db.Decimal(15, 2)
+  currency       String     @default("CNY")
+  establishDate  DateTime
+  duration       Int        // 存续期（月）
+  managementFee  Decimal    @db.Decimal(5, 4) // 管理费率
+  carriedInterest Decimal   @db.Decimal(5, 4) // 业绩报酬比例
+  status         FundStatus @default(FUNDRAISING)
+  description    String?
+  creatorId      String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  // 关联
+  creator        User       @relation("FundCreator", fields: [creatorId], references: [id])
+  investors      Investor[]
+  projects       Project[]
+  capitalCalls   CapitalCall[]
+  distributions  Distribution[]
+  navRecords     NAVRecord[]
+
+  @@map("funds")
+}
+
+enum FundType {
+  VC          // 风险投资
+  PE          // 私募股权
+  GROWTH      // 成长基金
+  BUYOUT      // 并购基金
+}
+
+enum FundStatus {
+  FUNDRAISING    // 募集中
+  INVESTING      // 投资期
+  MANAGEMENT     // 管理期
+  EXIT           // 退出期
+  LIQUIDATED     // 已清算
+}
+
+// 投资者表
+model Investor {
+  id           String        @id @default(uuid())
+  name         String
+  type         InvestorType
+  idNumber     String?       // 身份证号/统一社会信用代码
+  contactName  String
+  contactPhone String
+  contactEmail String
+  commitment   Decimal       @db.Decimal(15, 2) // 承诺出资额
+  paidAmount   Decimal       @default(0) @db.Decimal(15, 2) // 已实缴金额
+  fundId       String
+  joinDate     DateTime
+  status       String        @default("ACTIVE")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // 关联
+  fund         Fund          @relation(fields: [fundId], references: [id])
+  capitalCalls CapitalCall[]
+  distributions Distribution[]
+
+  @@map("investors")
+}
+
+enum InvestorType {
+  INDIVIDUAL     // 个人
+  INSTITUTION    // 机构
+  GOVERNMENT     // 政府
+}
+
+// 实缴通知表
+model CapitalCall {
+  id          String   @id @default(uuid())
+  fundId      String
+  investorId  String
+  amount      Decimal  @db.Decimal(15, 2)
+  dueDate     DateTime
+  paidDate    DateTime?
+  status      String   @default("PENDING") // PENDING, PAID, OVERDUE
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  fund        Fund     @relation(fields: [fundId], references: [id])
+  investor    Investor @relation(fields: [investorId], references: [id])
+
+  @@map("capital_calls")
+}
+
+// 分配表
+model Distribution {
+  id           String   @id @default(uuid())
+  fundId       String
+  investorId   String
+  amount       Decimal  @db.Decimal(15, 2)
+  type         String   // DIVIDEND, CAPITAL_RETURN, CARRIED_INTEREST
+  paymentDate  DateTime
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // 关联
+  fund         Fund     @relation(fields: [fundId], references: [id])
+  investor     Investor @relation(fields: [investorId], references: [id])
+
+  @@map("distributions")
+}
+
+// 基金净值记录表
+model NAVRecord {
+  id        String   @id @default(uuid())
+  fundId    String
+  date      DateTime
+  nav       Decimal  @db.Decimal(15, 2) // 净资产值
+  navPerUnit Decimal @db.Decimal(10, 4) // 单位净值
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关联
+  fund      Fund     @relation(fields: [fundId], references: [id])
+
+  @@map("nav_records")
+}
+
+// 项目表
+model Project {
+  id             String        @id @default(uuid())
+  name           String
+  code           String        @unique
+  industry       String
+  stage          ProjectStage
+  region         String
+  description    String?
+  fundId         String
+  investmentAmount Decimal?    @db.Decimal(15, 2)
+  valuation      Decimal?      @db.Decimal(15, 2)
+  shareholding   Decimal?      @db.Decimal(5, 4) // 持股比例
+  investmentDate DateTime?
+  status         ProjectStatus @default(SOURCING)
+  creatorId      String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // 关联
+  creator        User          @relation("ProjectCreator", fields: [creatorId], references: [id])
+  fund           Fund          @relation(fields: [fundId], references: [id])
+  dueDiligence   DueDiligence?
+  postInvestments PostInvestment[]
+  exitRecords    ExitRecord[]
+  workflows      Workflow[]
+
+  @@map("projects")
+}
+
+enum ProjectStage {
+  SEED        // 种子期
+  ANGEL       // 天使轮
+  A_ROUND     // A轮
+  B_ROUND     // B轮
+  C_ROUND     // C轮
+  PRE_IPO     // Pre-IPO
+  GROWTH      // 成长期
+  MATURE      // 成熟期
+}
+
+enum ProjectStatus {
+  SOURCING       // 项目寻源
+  SCREENING      // 初步筛选
+  DUE_DILIGENCE  // 尽职调查
+  DECISION       // 投资决策
+  INVESTED       // 已投资
+  POST_INVESTMENT // 投后管理
+  EXITING        // 退出中
+  EXITED         // 已退出
+  REJECTED       // 已拒绝
+}
+
+// 尽职调查表
+model DueDiligence {
+  id            String   @id @default(uuid())
+  projectId     String   @unique
+  financial     String?  // 财务尽调报告
+  legal         String?  // 法律尽调报告
+  business      String?  // 商业尽调报告
+  technical     String?  // 技术尽调报告
+  riskAssessment String? // 风险评估
+  conclusion    String?  // 尽调结论
+  status        String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // 关联
+  project       Project  @relation(fields: [projectId], references: [id])
+
+  @@map("due_diligence")
+}
+
+// 投后管理表
+model PostInvestment {
+  id          String   @id @default(uuid())
+  projectId   String
+  reportDate  DateTime
+  revenue     Decimal? @db.Decimal(15, 2)
+  profit      Decimal? @db.Decimal(15, 2)
+  keyMetrics  String?  // JSON格式存储关键指标
+  issues      String?  // 问题记录
+  actions     String?  // 行动计划
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  project     Project  @relation(fields: [projectId], references: [id])
+
+  @@map("post_investments")
+}
+
+// 退出记录表
+model ExitRecord {
+  id          String   @id @default(uuid())
+  projectId   String
+  exitType    ExitType
+  exitDate    DateTime
+  exitAmount  Decimal  @db.Decimal(15, 2)
+  returnMultiple Decimal @db.Decimal(10, 4) // 回报倍数
+  irr         Decimal? @db.Decimal(8, 4)    // 内部收益率
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  project     Project  @relation(fields: [projectId], references: [id])
+
+  @@map("exit_records")
+}
+
+enum ExitType {
+  IPO         // 上市
+  TRADE_SALE  // 并购
+  SECONDARY   // 二级市场出售
+  BUYBACK     // 回购
+  WRITE_OFF   // 减记
+}
+
+// 工作流表
+model Workflow {
+  id          String   @id @default(uuid())
+  projectId   String
+  type        WorkflowType
+  status      WorkflowStatus @default(PENDING)
+  currentStep Int      @default(1)
+  totalSteps  Int
+  initiator   String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  project     Project  @relation(fields: [projectId], references: [id])
+  approvalRecords ApprovalRecord[]
+
+  @@map("workflows")
+}
+
+enum WorkflowType {
+  PROJECT_INITIATION  // 项目立项
+  INVESTMENT_DECISION // 投资决策
+  POST_INVESTMENT     // 投后管理
+  EXIT_APPROVAL       // 退出审批
+}
+
+enum WorkflowStatus {
+  PENDING    // 待审批
+  APPROVED   // 已通过
+  REJECTED   // 已拒绝
+  CANCELLED  // 已取消
+}
+
+// 审批记录表
+model ApprovalRecord {
+  id          String   @id @default(uuid())
+  workflowId  String
+  approverId  String
+  step        Int
+  action      String   // APPROVE, REJECT
+  comments    String?
+  createdAt   DateTime @default(now())
+
+  // 关联
+  workflow    Workflow @relation(fields: [workflowId], references: [id])
+  approver    User     @relation(fields: [approverId], references: [id])
+
+  @@map("approval_records")
+}
