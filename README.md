@@ -65,9 +65,21 @@
     └── package.json
 ```
 
-## 快速开始
+## 部署方式
 
-### 后端启动
+### 云端部署（推荐）
+
+通过浏览器直接访问，无需本地安装：
+
+📖 [查看云端部署指南](CLOUD_DEPLOYMENT.md)
+
+支持的云平台：
+- **后端**：Railway / Render（免费）
+- **前端**：Vercel / Netlify（免费）
+
+### 本地开发
+
+#### 后端启动
 
 ```bash
 cd backend
@@ -75,7 +87,7 @@ npm install
 npm run dev
 ```
 
-### 前端启动
+#### 前端启动
 
 ```bash
 cd frontend
@@ -93,6 +105,12 @@ npm run dev
 
 - 后端：http://localhost:3000
 - 前端：http://localhost:5173
+
+## 文档
+
+- 📖 [云端部署指南](CLOUD_DEPLOYMENT.md) - 部署到云端，通过网页访问
+- 📖 [本地部署指南](DEPLOYMENT.md) - 本地或服务器部署
+- 📖 [API 接口文档](API.md) - 完整的 API 接口说明
 
 ## License
 

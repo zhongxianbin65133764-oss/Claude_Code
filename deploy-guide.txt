@@ -1,0 +1,89 @@
+🚀 私募股权基金管理系统 - 一键部署指南
+
+═══════════════════════════════════════════════════════════
+
+第一步：部署后端（Railway）
+═══════════════════════════════════════════════════════════
+
+1. 访问 https://railway.app
+2. 使用 GitHub 登录
+3. 点击 "New Project" → "Deploy from GitHub repo"
+4. 选择此仓库：Claude_Code
+5. 添加 PostgreSQL：点击 "New" → "Database" → "Add PostgreSQL"
+6. 配置环境变量：
+
+   NODE_ENV=production
+   JWT_SECRET=<生成一个32位随机字符串>
+   JWT_EXPIRES_IN=7d
+   PORT=3000
+   DATABASE_URL=<从PostgreSQL自动引用>
+
+7. 设置 Root Directory 为 "backend"
+8. 生成域名：Settings → Generate Domain
+9. 复制生成的域名：https://xxxxx.railway.app
+
+═══════════════════════════════════════════════════════════
+
+第二步：部署前端（Vercel）
+═══════════════════════════════════════════════════════════
+
+1. 访问 https://vercel.com
+2. 使用 GitHub 登录
+3. 点击 "Add New..." → "Project"
+4. 选择 Claude_Code 仓库
+5. 配置：
+
+   Framework Preset: Vite
+   Root Directory: frontend
+   Build Command: npm run build
+   Output Directory: dist
+
+6. 添加环境变量：
+
+   VITE_API_URL=https://xxxxx.railway.app/api
+   （替换为第一步中的 Railway 域名）
+
+7. 点击 "Deploy"
+8. 等待部署完成
+9. 获取你的网站地址：https://xxxxx.vercel.app
+
+═══════════════════════════════════════════════════════════
+
+第三步：创建初始用户
+═══════════════════════════════════════════════════════════
+
+使用以下命令创建管理员账户：
+
+curl -X POST https://xxxxx.railway.app/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "Admin123456",
+    "name": "系统管理员",
+    "role": "ADMIN"
+  }'
+
+（将 xxxxx.railway.app 替换为你的实际域名）
+
+═══════════════════════════════════════════════════════════
+
+第四步：开始使用
+═══════════════════════════════════════════════════════════
+
+1. 访问你的前端地址：https://xxxxx.vercel.app
+2. 使用创建的账号登录
+3. 开始管理你的私募基金！
+
+═══════════════════════════════════════════════════════════
+
+💡 提示
+═══════════════════════════════════════════════════════════
+
+• 完全免费部署（有使用限制）
+• 自动 HTTPS 加密
+• 全球 CDN 加速
+• 代码更新后自动重新部署
+
+详细文档请查看：CLOUD_DEPLOYMENT.md
+
+═══════════════════════════════════════════════════════════
