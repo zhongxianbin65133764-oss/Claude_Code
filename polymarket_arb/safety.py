@@ -11,31 +11,53 @@ import logging
 from .config import BLACKLIST_KEYWORDS, RISKY_CATEGORIES, SAFE_CATEGORIES
 from .gamma_client import Market
 from .orderbook import OrderBook
+from .question_classifier import (
+    DEFAULT_SAFE_SUBCATEGORIES,
+    ClassifiedMarket,
+    classify,
+    is_safe,
+)
 
 log = logging.getLogger(__name__)
 
 
-def market_passes_safety(market: Market) -> tuple[bool, str]:
-    """Return (ok, reason)."""
+def market_passes_safety(
+    market: Market,
+    use_subcategory_filter: bool = True,
+) -> tuple[bool, str, ClassifiedMarket | None]:
+    """Return (ok, reason, classified_market_or_none).
+
+    When use_subcategory_filter is True (S-tier optimization),
+    a market must additionally classify into the safe-subcategory
+    whitelist (crypto_price / team_moneyline) with high confidence.
+    This is much stricter than the broad category whitelist.
+    """
     if not market.accepting_orders:
-        return False, "not accepting orders"
+        return False, "not accepting orders", None
     if market.closed:
-        return False, "already closed"
+        return False, "already closed", None
 
     q_lower = market.question.lower()
     for kw in BLACKLIST_KEYWORDS:
         if kw in q_lower:
-            return False, f"blacklisted keyword: {kw}"
+            return False, f"blacklisted keyword: {kw}", None
 
     cat = market.category
     if cat in RISKY_CATEGORIES:
-        return False, f"risky category: {cat}"
+        return False, f"risky category: {cat}", None
     if SAFE_CATEGORIES and cat and cat not in SAFE_CATEGORIES:
-        # Unknown category: skip conservatively. Comment this out to be
-        # more aggressive.
-        return False, f"unknown category: {cat}"
+        return False, f"unknown category: {cat}", None
 
-    return True, "ok"
+    classified = classify(market.question)
+
+    if use_subcategory_filter:
+        if not is_safe(classified, DEFAULT_SAFE_SUBCATEGORIES, min_confidence="high"):
+            return False, (
+                f"subcategory '{classified.subcategory}' "
+                f"(conf={classified.confidence}) not in safe whitelist"
+            ), classified
+
+    return True, "ok", classified
 
 
 def book_passes_safety(

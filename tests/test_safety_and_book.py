@@ -30,31 +30,59 @@ def _make_market(**kw) -> Market:
 
 
 def test_safe_sports_market_passes():
-    ok, _ = market_passes_safety(_make_market())
+    # "Will the Lakers win Game 3?" - only one team, but with verb -> medium confidence
+    # We use a clear two-team moneyline so subcategory filter passes.
+    m = _make_market(question="Will the Lakers beat the Celtics in Game 3?")
+    ok, _, cm = market_passes_safety(m)
     assert ok
+    assert cm.subcategory == "team_moneyline"
+
+
+def test_crypto_market_passes_subcategory_filter():
+    m = _make_market(question="Will BTC close above $100,000 on May 8, 2026?",
+                     category="Crypto")
+    ok, _, cm = market_passes_safety(m)
+    assert ok
+    assert cm.subcategory == "crypto_price"
+
+
+def test_player_prop_rejected_even_in_sports_category():
+    m = _make_market(question="Will LeBron score 30+ points in Game 3?")
+    ok, reason, cm = market_passes_safety(m)
+    assert not ok
+    assert "player_prop" in reason or "subcategory" in reason
 
 
 def test_risky_category_rejected():
-    ok, reason = market_passes_safety(_make_market(category="Politics"))
+    ok, reason, _ = market_passes_safety(_make_market(category="Politics"))
     assert not ok
     assert "risky" in reason
 
 
 def test_blacklisted_keyword_rejected():
     m = _make_market(question="Will the pope make a statement on AI?")
-    ok, reason = market_passes_safety(m)
+    ok, reason, _ = market_passes_safety(m)
     assert not ok
     assert "pope" in reason
 
 
 def test_unknown_category_rejected():
-    ok, _ = market_passes_safety(_make_market(category="Memes"))
+    ok, _, _ = market_passes_safety(_make_market(category="Memes"))
     assert not ok
 
 
 def test_not_accepting_orders_rejected():
-    ok, _ = market_passes_safety(_make_market(accepting_orders=False))
+    ok, _, _ = market_passes_safety(_make_market(accepting_orders=False))
     assert not ok
+
+
+def test_subcategory_filter_can_be_disabled():
+    # Single-team-no-verb question: medium confidence team_moneyline
+    m = _make_market(question="Will the Lakers play this week?")
+    ok_strict, _, _ = market_passes_safety(m, use_subcategory_filter=True)
+    ok_loose, _, _ = market_passes_safety(m, use_subcategory_filter=False)
+    assert not ok_strict
+    assert ok_loose
 
 
 def _book(asks, bids=None):

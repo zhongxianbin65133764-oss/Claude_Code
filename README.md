@@ -241,7 +241,54 @@ Only after a week of dry-run output looks sane:
 
 ---
 
-## 7. Tuning
+## 7. Optimization tools
+
+Two tools to help you iterate on the strategy without losing money:
+
+### 7.1 Weekly review (diagnostic)
+
+```bash
+python scripts/weekly_review.py
+```
+
+Reads `positions.db` and prints a structured report:
+- Activity summary (detections, fills, settlements)
+- Loss decomposition — splits the ideal-vs-realistic gap into
+  *partial fills + gas*, *adverse selection*, and *UMA disputes*
+- Performance by subcategory (which market types win/lose)
+- Performance by entry-price bucket (find your sweet spot)
+- Empirical vs configured friction (auto-calibrates the model)
+- Top 3 prioritized recommendations
+
+Run this **weekly** to find out what to optimize next. The script
+refuses to give recommendations until you have ≥10 closed positions,
+because anything less is noise.
+
+### 7.2 S-tier optimizations (enabled by default)
+
+Two changes proven to reduce dispute and adverse-fill rates the most:
+
+**A. Sub-category whitelist** (`USE_SUBCATEGORY_FILTER=true`)
+Beyond the broad category check, market questions must match a
+high-confidence safe pattern: `crypto_price` (e.g., "Will BTC close
+above $X on Y?") or `team_moneyline` (e.g., "Will the Lakers beat
+the Celtics?"). Excludes player props, sports event existence, and
+anything with subjective resolution language. Implementation in
+`polymarket_arb/question_classifier.py`.
+
+**B. Independent crypto oracle** (`USE_ORACLE=true`)
+For `crypto_price` markets we don't need to trust UMA — we can look
+up the close price on Coinbase ourselves. If the oracle confirms the
+winning side, we:
+- Trade only that side (skip the losing one even if it looks
+  underpriced)
+- Pay up to `ORACLE_VERIFIED_MAX_BUY_PRICE` (default $0.985 instead
+  of $0.96)
+
+This essentially eliminates UMA dispute risk on crypto markets.
+Implementation in `polymarket_arb/price_oracle.py`.
+
+### 7.3 Tuning thresholds
 
 Once you have 30+ dry-run observations, look at `positions.db`:
 

@@ -32,6 +32,8 @@ from .friction import (
 from .gamma_client import Market, fetch_resolving_markets
 from .orderbook import OrderBook, fetch_book
 from .position_store import PositionStore
+from .price_oracle import PriceVerdict, verify_crypto_market
+from .question_classifier import ClassifiedMarket
 from .safety import book_passes_safety, market_passes_safety
 
 log = logging.getLogger(__name__)
@@ -46,6 +48,12 @@ class Opportunity:
     fillable_tokens: float
     fillable_cost: float
     avg_price: float
+    # Per-opportunity ceiling. May be higher than config.max_buy_price
+    # when the oracle has independently verified the winning side.
+    effective_max_price: float
+    # Reason this opportunity exists (for logging/debug):
+    edge_source: str  # 'default' | 'oracle_verified'
+    classified: ClassifiedMarket | None = None
 
 
 def find_opportunities(config: Config) -> list[Opportunity]:
@@ -54,6 +62,8 @@ def find_opportunities(config: Config) -> list[Opportunity]:
     market_count = 0
     rejected_safety = 0
     rejected_book = 0
+    rejected_oracle = 0
+    oracle_boosted = 0
 
     for market in fetch_resolving_markets(
         config.gamma_base,
@@ -61,20 +71,54 @@ def find_opportunities(config: Config) -> list[Opportunity]:
         config.max_market_age_days,
     ):
         market_count += 1
-        ok, reason = market_passes_safety(market)
+        ok, reason, classified = market_passes_safety(
+            market, use_subcategory_filter=config.use_subcategory_filter,
+        )
         if not ok:
             rejected_safety += 1
             log.debug("skip %s: %s", market.question[:60], reason)
             continue
 
+        # ---- Oracle gate (crypto markets only) ----
+        oracle_verdict: PriceVerdict | None = None
+        oracle_side: str | None = None
+        per_market_max_price = config.max_buy_price
+        edge_source = "default"
+
+        if (config.use_oracle and classified is not None
+                and classified.subcategory == "crypto_price"
+                and classified.confidence == "high"):
+            oracle_verdict = verify_crypto_market(classified)
+            if oracle_verdict.winning_side is not None:
+                oracle_side = oracle_verdict.winning_side
+                per_market_max_price = config.oracle_verified_max_buy_price
+                edge_source = "oracle_verified"
+                log.info(
+                    "ORACLE %s | %s -> %s wins at $%.2f, max_price raised to %.3f",
+                    market.question[:60], oracle_verdict.source,
+                    oracle_side, oracle_verdict.actual_price or 0.0,
+                    per_market_max_price,
+                )
+            else:
+                log.debug(
+                    "oracle for %s returned no verdict: %s",
+                    market.question[:60], oracle_verdict.error,
+                )
+
         for side, token_id in (("YES", market.yes_token_id),
                                ("NO", market.no_token_id)):
+            # Oracle gate: if oracle has a verdict, only trade the
+            # winning side (skip the losing side entirely).
+            if oracle_side is not None and side != oracle_side:
+                rejected_oracle += 1
+                continue
+
             book = fetch_book(config.clob_base, token_id)
             if book is None:
                 continue
             ok, reason = book_passes_safety(
                 book,
-                max_price=config.max_buy_price,
+                max_price=per_market_max_price,
                 min_price=config.min_buy_price,
                 min_depth_usd=config.min_book_depth_usd,
             )
@@ -84,10 +128,12 @@ def find_opportunities(config: Config) -> list[Opportunity]:
                 continue
 
             tokens, cost = _fill_within_budget(
-                book, config.max_position_size_usd, config.max_buy_price,
+                book, config.max_position_size_usd, per_market_max_price,
             )
             if tokens <= 0 or cost <= 0:
                 continue
+            if edge_source == "oracle_verified":
+                oracle_boosted += 1
             opportunities.append(Opportunity(
                 market=market,
                 side=side,
@@ -96,11 +142,16 @@ def find_opportunities(config: Config) -> list[Opportunity]:
                 fillable_tokens=tokens,
                 fillable_cost=cost,
                 avg_price=cost / tokens,
+                effective_max_price=per_market_max_price,
+                edge_source=edge_source,
+                classified=classified,
             ))
 
     log.info(
-        "scan: %d markets seen, %d safety-rejected, %d book-rejected, %d opportunities",
-        market_count, rejected_safety, rejected_book, len(opportunities),
+        "scan: %d markets, %d safety-rej, %d book-rej, %d oracle-rej, "
+        "%d opps (%d oracle-boosted)",
+        market_count, rejected_safety, rejected_book, rejected_oracle,
+        len(opportunities), oracle_boosted,
     )
     return opportunities
 
@@ -152,7 +203,7 @@ def handle_opportunity(
 
     if config.dry_run:
         # Don't execute now — enqueue for delayed verification.
-        _, depth_at_limit = opp.book.fillable_cost(1e9, config.max_buy_price)
+        _, depth_at_limit = opp.book.fillable_cost(1e9, opp.effective_max_price)
         added = queue.enqueue(PendingVerification(
             token_id=opp.token_id,
             condition_id=opp.market.condition_id,
@@ -161,25 +212,28 @@ def handle_opportunity(
             detected_at=datetime.now(timezone.utc),
             detected_ask=opp.book.best_ask or opp.avg_price,
             detected_depth_usd=depth_at_limit,
-            max_buy_price=config.max_buy_price,
+            max_buy_price=opp.effective_max_price,
             intended_usd=intended_cost,
         ))
         if added:
             log.info(
-                "DETECTED %s | %s @ %.3f | depth $%.0f | queued for verification in %.0fs",
+                "DETECTED %s | %s @ %.3f | depth $%.0f | source=%s | "
+                "queued for verification in %.0fs",
                 opp.market.question[:70], opp.side, opp.avg_price,
-                depth_at_limit, config.verification_delay_seconds,
+                depth_at_limit, opp.edge_source,
+                config.verification_delay_seconds,
             )
         return "queued"
 
     # LIVE path
     log.info(
-        "PLACING %s | %s @ %.3f | $%.2f",
-        opp.market.question[:70], opp.side, opp.avg_price, intended_cost,
+        "PLACING %s | %s @ %.3f | $%.2f | source=%s",
+        opp.market.question[:70], opp.side, opp.avg_price,
+        intended_cost, opp.edge_source,
     )
     result = executor.buy(
         token_id=opp.token_id,
-        max_price=config.max_buy_price,
+        max_price=opp.effective_max_price,
         max_usd=intended_cost,
     )
     if not result.success:

@@ -95,6 +95,23 @@ class Config:
     # despite passing all safety filters. Applies on top of adverse fill.
     uma_dispute_rate: float = _env_float("UMA_DISPUTE_RATE", 0.02)
 
+    # ---- S-tier optimizations ----
+    # When True, markets must additionally match a high-confidence
+    # safe subcategory (crypto_price, team_moneyline). Cuts the dispute
+    # rate by an estimated 5-10x at the cost of fewer opportunities.
+    use_subcategory_filter: bool = _env_bool("USE_SUBCATEGORY_FILTER", True)
+
+    # When True, crypto_price markets are independently verified against
+    # Coinbase. If the oracle's verdict differs from our intended side,
+    # we skip; if it confirms our side, we may pay up to a higher max.
+    use_oracle: bool = _env_bool("USE_ORACLE", True)
+
+    # Max price we'll pay on oracle-verified crypto markets. Higher than
+    # the default because the dispute risk is essentially eliminated.
+    oracle_verified_max_buy_price: float = _env_float(
+        "ORACLE_VERIFIED_MAX_BUY_PRICE", 0.985,
+    )
+
 
 # Categories where outcomes are mechanically verifiable (price feeds,
 # game scores, on-chain data). UMA is least likely to dispute these.
