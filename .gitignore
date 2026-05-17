@@ -12,3 +12,6 @@ venv/
 .vscode/
 positions.db
 arb_bot.log
+
+# Generated artifacts
+docs/*.pdf

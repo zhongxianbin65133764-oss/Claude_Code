@@ -3,3 +3,6 @@ python-dotenv>=1.0.0
 py-clob-client>=0.17.0
 web3>=6.11.0
 flask>=3.0.0
+
+# For building docs/MANUAL_zh.pdf only (optional):
+# pip install weasyprint markdown

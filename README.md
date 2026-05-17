@@ -98,6 +98,21 @@ tests/                # Offline unit tests for safety/orderbook math.
 
 ## 3. Setup
 
+### 📖 Non-technical Chinese user manual
+
+If you want to show this to a friend who doesn't write code, hand
+them `docs/MANUAL_zh.pdf` (or `docs/MANUAL_zh.md` for the source).
+It's a 12-section step-by-step walkthrough: what the bot is, how
+to install it on a Mac, what every dashboard number means, when
+to worry, common questions, and how to clean up.
+
+To regenerate the PDF after editing the markdown:
+
+```bash
+pip install weasyprint markdown
+python3 docs/build_pdf.py
+```
+
 ### 3.0 macOS one-shot launcher (easiest path)
 
 ```bash
