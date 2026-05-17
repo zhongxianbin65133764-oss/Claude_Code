@@ -67,6 +67,34 @@ class Config:
     db_path: str = os.getenv("DB_PATH", "positions.db")
     log_path: str = os.getenv("LOG_PATH", "arb_bot.log")
 
+    # ---- Paper/live realism layer ----
+    # In dry-run we don't just "assume" the book we saw is fillable.
+    # Instead we re-fetch the same book after this many seconds and
+    # treat the *later* book as the truth, simulating latency from
+    # detection -> submission and competition from other arb bots.
+    verification_delay_seconds: float = _env_float("VERIFICATION_DELAY_SECONDS", 60.0)
+
+    # Per-trade gas + signing overhead, paid even if the order partially
+    # fills or gets cancelled. Polygon is cheap but it adds up.
+    estimated_gas_cost_usd: float = _env_float("ESTIMATED_GAS_COST_USD", 0.10)
+
+    # Of orders that DO find liquidity at our limit price, what fraction
+    # of intended size fills on average? Real fills are usually partial
+    # because the visible book has hidden cancellations and competing
+    # takers.
+    expected_fill_ratio: float = _env_float("EXPECTED_FILL_RATIO", 0.70)
+
+    # Probability that a fill we got was an "adverse" fill — i.e. the
+    # only reason someone sold to us at 96c was that they knew the
+    # market was about to be voided / disputed / re-resolved. These
+    # fills go to zero. Set conservatively based on observed dispute
+    # base rate; tighten with empirical data.
+    adverse_fill_rate: float = _env_float("ADVERSE_FILL_RATE", 0.03)
+
+    # Probability that a position we hold gets UMA-disputed and reversed
+    # despite passing all safety filters. Applies on top of adverse fill.
+    uma_dispute_rate: float = _env_float("UMA_DISPUTE_RATE", 0.02)
+
 
 # Categories where outcomes are mechanically verifiable (price feeds,
 # game scores, on-chain data). UMA is least likely to dispute these.

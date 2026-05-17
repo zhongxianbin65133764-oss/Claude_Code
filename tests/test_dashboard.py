@@ -12,26 +12,60 @@ from polymarket_arb.position_store import PositionStore
 
 
 def _seed(store: PositionStore) -> None:
-    # one open position
+    # open position (with realistic_*: 70% fill + $0.10 gas)
     store.open_position(
         condition_id="0xopen1", token_id="t1",
         question="Will the Lakers win Game 3?", side="YES",
         tokens=26.18, avg_price=0.955, cost_usd=25.00, dry_run=True,
+        realistic_tokens=18.32, realistic_cost_usd=17.60,
+        sim_flags="fill_ratio=70%;gas=$0.10",
     )
-    # one winning closed position
+    # winning closed position
     store.open_position(
         condition_id="0xwin", token_id="t2",
         question="Will BTC close above $100k on 2026-05-10?", side="NO",
         tokens=27.03, avg_price=0.925, cost_usd=25.00, dry_run=True,
+        realistic_tokens=18.92, realistic_cost_usd=17.60,
+        sim_flags="fill_ratio=70%;gas=$0.10",
     )
-    store.mark_resolved("0xwin", payout_usd=27.03, notes="outcome=NO pnl=+2.03")
-    # one losing closed position (UMA dispute reversed)
+    store.mark_resolved(
+        "0xwin", payout_usd=27.03,
+        realistic_payout_usd=18.92,
+        notes="outcome=NO pnl=+2.03",
+    )
+    # losing closed position (UMA reversed in simulation)
     store.open_position(
         condition_id="0xloss", token_id="t3",
         question="Will the Knicks win Game 2?", side="YES",
         tokens=26.32, avg_price=0.950, cost_usd=25.00, dry_run=True,
+        realistic_tokens=18.42, realistic_cost_usd=17.60,
+        sim_flags="fill_ratio=70%;gas=$0.10",
     )
-    store.mark_resolved("0xloss", payout_usd=0.0, notes="outcome=NO pnl=-25.00")
+    store.mark_resolved(
+        "0xloss", payout_usd=0.0,
+        realistic_payout_usd=0.0,
+        notes="outcome=NO pnl=-25.00",
+    )
+
+    # one verification record so the realism stats section renders
+    store.record_verification(
+        condition_id="0xv1", token_id="vt1", side="YES",
+        detected_at="2026-05-17T10:00:00+00:00",
+        detected_ask=0.95, detected_depth_usd=200.0, intended_usd=25.0,
+        verified_at="2026-05-17T10:01:00+00:00",
+        verified_ask=0.95, verified_depth_usd=120.0,
+        would_have_filled=True,
+        realistic_tokens=18.0, realistic_cost_usd=17.5,
+    )
+    store.record_verification(
+        condition_id="0xv2", token_id="vt2", side="YES",
+        detected_at="2026-05-17T10:05:00+00:00",
+        detected_ask=0.94, detected_depth_usd=200.0, intended_usd=25.0,
+        verified_at="2026-05-17T10:06:00+00:00",
+        verified_ask=0.97, verified_depth_usd=30.0,
+        would_have_filled=False,
+        realistic_tokens=0.0, realistic_cost_usd=0.0,
+    )
 
 
 def test_dashboard_renders_with_seeded_data():
@@ -47,17 +81,20 @@ def test_dashboard_renders_with_seeded_data():
         r = client.get("/")
         assert r.status_code == 200
         body = r.get_data(as_text=True)
-        # Chinese labels should appear
+        # Chinese labels
         assert "Polymarket 套利助手" in body
         assert "演练模式" in body
-        assert "已结算盈亏" in body
         assert "正在持有" in body
         assert "已经结清" in body
-        # seeded questions should appear
+        # realism layer should be shown in dry-run with verifications
+        assert "演练 vs 实盘的差距" in body
+        assert "实盘预估" in body
+        assert "理想" in body
+        # seeded questions
         assert "Lakers" in body
         assert "BTC close above" in body
         assert "Knicks" in body
-        # PnL: +2.03 - 25.00 = -22.97
+        # ideal PnL: +2.03 - 25.00 = -22.97
         assert "-22.97" in body
 
         # API endpoints
@@ -68,13 +105,27 @@ def test_dashboard_renders_with_seeded_data():
         assert s["closed_count"] == 2
         assert abs(s["realized_pnl"] - (-22.97)) < 0.01
         assert abs(s["win_rate"] - 0.5) < 0.001
+        # realistic PnL: +1.32 + (0 - 17.60) = -16.28
+        assert abs(s["realistic_pnl"] - (-16.28)) < 0.05
+        # verification stats
+        assert s["verification"]["detected"] == 2
+        assert s["verification"]["filled"] == 1
+        assert abs(s["verification"]["fill_rate"] - 0.5) < 0.001
 
+        # ideal series
         r = client.get("/api/pnl-series")
         assert r.status_code == 200
         series = r.get_json()
         assert len(series) == 2
-        # cumulative: first +2.03, then +2.03 - 25 = -22.97
         assert abs(series[-1][1] - (-22.97)) < 0.01
+
+        # realistic series
+        r = client.get("/api/pnl-series?realistic=1")
+        assert r.status_code == 200
+        rseries = r.get_json()
+        assert len(rseries) == 2
+        # last point = -16.28 (within tolerance)
+        assert abs(rseries[-1][1] - (-16.28)) < 0.05
 
 
 def test_dashboard_renders_with_empty_db():

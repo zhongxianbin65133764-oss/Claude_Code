@@ -1,4 +1,4 @@
-"""Main loop: scan -> execute -> settle, repeat."""
+"""Main loop: verify -> settle -> scan -> route, repeat."""
 from __future__ import annotations
 
 import logging
@@ -8,9 +8,14 @@ import time
 
 from .config import CONFIG
 from .executor import Executor
+from .friction import FrictionModel, VerificationQueue
 from .position_store import PositionStore
 from .settler import sweep_settlements
-from .strategy import execute_opportunity, find_opportunities
+from .strategy import (
+    find_opportunities,
+    handle_opportunity,
+    process_verification_queue,
+)
 
 
 def _setup_logging(log_path: str) -> None:
@@ -38,8 +43,8 @@ def main() -> int:
     _setup_logging(CONFIG.log_path)
     log = logging.getLogger("arb_bot")
 
-    mode = "DRY-RUN" if CONFIG.dry_run else "*** LIVE TRADING ***"
-    log.info("=" * 60)
+    mode = "DRY-RUN (realism layer ON)" if CONFIG.dry_run else "*** LIVE TRADING ***"
+    log.info("=" * 64)
     log.info("Polymarket Resolution-Time Arb Bot starting in %s", mode)
     log.info("  max buy price       : $%.3f", CONFIG.max_buy_price)
     log.info("  min buy price       : $%.3f", CONFIG.min_buy_price)
@@ -48,7 +53,14 @@ def main() -> int:
     log.info("  max position size   : $%.2f", CONFIG.max_position_size_usd)
     log.info("  max total exposure  : $%.2f", CONFIG.max_total_exposure_usd)
     log.info("  scan interval       : %.0fs", CONFIG.scan_interval_seconds)
-    log.info("=" * 60)
+    if CONFIG.dry_run:
+        log.info("  --- realism layer ---")
+        log.info("  verify delay        : %.0fs", CONFIG.verification_delay_seconds)
+        log.info("  est gas/trade       : $%.2f", CONFIG.estimated_gas_cost_usd)
+        log.info("  expected fill ratio : %.0f%%", CONFIG.expected_fill_ratio * 100)
+        log.info("  adverse fill rate   : %.1f%%", CONFIG.adverse_fill_rate * 100)
+        log.info("  UMA dispute rate    : %.1f%%", CONFIG.uma_dispute_rate * 100)
+    log.info("=" * 64)
 
     if not CONFIG.dry_run:
         log.warning("LIVE MODE: real USDC will be spent. Ctrl-C in 10s to abort.")
@@ -56,6 +68,13 @@ def main() -> int:
 
     store = PositionStore(CONFIG.db_path)
     executor = Executor(CONFIG)
+    queue = VerificationQueue(CONFIG.verification_delay_seconds)
+    friction = FrictionModel(
+        gas_cost_usd=CONFIG.estimated_gas_cost_usd,
+        expected_fill_ratio=CONFIG.expected_fill_ratio,
+        adverse_fill_rate=CONFIG.adverse_fill_rate,
+        uma_dispute_rate=CONFIG.uma_dispute_rate,
+    )
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
@@ -63,33 +82,43 @@ def main() -> int:
     while not _STOP:
         loop_start = time.monotonic()
 
-        # 1. Settle any positions UMA has resolved since last loop.
+        # 1. Process any verifications whose delay has elapsed.
         try:
-            resolved = sweep_settlements(CONFIG, store)
+            opened = process_verification_queue(CONFIG, store, queue, friction)
+            if opened:
+                log.info("opened %d positions from verification queue", opened)
+        except Exception:
+            log.exception("verification processing failed")
+
+        # 2. Settle any positions UMA has resolved since last loop.
+        try:
+            resolved = sweep_settlements(CONFIG, store, friction)
             if resolved:
                 log.info("settled %d positions this cycle", resolved)
         except Exception:
             log.exception("settlement sweep failed")
 
-        # 2. Find and act on new opportunities.
+        # 3. Find and route new opportunities.
         try:
             opps = find_opportunities(CONFIG)
             for opp in opps:
                 if _STOP:
                     break
-                execute_opportunity(opp, CONFIG, store, executor)
+                handle_opportunity(opp, CONFIG, store, executor, queue)
         except Exception:
             log.exception("opportunity scan failed")
 
-        # 3. Status snapshot.
+        # 4. Status snapshot.
         exposure = store.open_exposure_usd()
-        log.info("open exposure: $%.2f / $%.2f", exposure, CONFIG.max_total_exposure_usd)
+        log.info(
+            "status: exposure $%.2f / $%.2f | %d in verification queue",
+            exposure, CONFIG.max_total_exposure_usd, len(queue),
+        )
 
         if _STOP:
             break
         elapsed = time.monotonic() - loop_start
         sleep_for = max(5.0, CONFIG.scan_interval_seconds - elapsed)
-        log.debug("sleeping %.1fs", sleep_for)
         for _ in range(int(sleep_for)):
             if _STOP:
                 break

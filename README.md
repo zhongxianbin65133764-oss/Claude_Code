@@ -128,18 +128,20 @@ opportunities before risking money.
 python -m polymarket_arb.main
 ```
 
-You'll see something like:
+In **dry-run mode** the bot runs the full realism layer: detect an
+opportunity, wait 60s, re-fetch the book, then decide whether the trade
+would actually have happened. You'll see something like:
 
 ```
-2026-05-17 ... INFO arb_bot | Polymarket Resolution-Time Arb Bot starting in DRY-RUN
-2026-05-17 ... INFO polymarket_arb.strategy | scan: 47 markets seen, 31 safety-rejected, 12 book-rejected, 4 opportunities
-2026-05-17 ... INFO polymarket_arb.strategy | OPPORTUNITY: Will the Lakers win Game 3? | YES @ 0.955 | fill $25.00 | 0xabc...
-2026-05-17 ... INFO polymarket_arb.executor | [DRY] would BUY 26.18 tokens of 12345... at <=0.960 (max $25.00)
-2026-05-17 ... INFO arb_bot | open exposure: $25.00 / $200.00
+2026-05-17 ... | scan: 47 markets seen, 31 safety-rejected, 12 book-rejected, 4 opportunities
+2026-05-17 ... | DETECTED Will the Lakers win Game 3? | YES @ 0.955 | depth $200 | queued for verification in 60s
+2026-05-17 ... | MISSED   Will Chiefs beat Bengals?  | ask drifted 0.940 -> 0.965, fill rate dropping
+2026-05-17 ... | FILLED   Will the Lakers win Game 3? | ideal $25.00 @ 0.960 -> real $17.60 @ 0.955 (fill_ratio=70%;gas=$0.10)
+2026-05-17 ... | status: exposure $17.60 / $200.00 | 2 in verification queue
 ```
 
-Let it run for **at least a week** in dry-run, then look at `positions.db`
-to evaluate hit rate and which markets it would have caught.
+Let it run for **at least a week** in dry-run, then look at the dashboard
+to evaluate hit rate, realistic PnL, and which markets it would have caught.
 
 ### 3.4 Run tests
 
@@ -160,11 +162,11 @@ python -m polymarket_arb.dashboard --host 0.0.0.0 --port 8080
 The dashboard reads the same `positions.db` the bot writes, so you can
 run both side by side. It shows:
 
-- summary cards (open count, exposure, closed count, realized PnL, win rate, avg return)
-- cumulative realized PnL line chart
-- open positions table (with hours-since-opened)
-- closed positions table (last 30, with PnL, return %, days held)
-- recent trades log (last 50, BUY + SETTLE actions)
+- **大字盈亏(实盘预估)** + 对比理想盈亏(完美执行下应得)
+- **"演练 vs 实盘的差距"** 小节:发现机会数 / 实际抢到数 / 资金捕获率 / 平均价格漂移
+- 盈亏走势图(实线 = 实盘预估,虚线 = 理想)
+- 正在持有 + 已经结清两张表(结清表分"理想盈亏" / "实盘盈亏"两列)
+- 折叠帮助:"实盘和演练为什么有差距?"
 
 To preview without running the bot, seed synthetic data:
 
@@ -175,7 +177,39 @@ python -m polymarket_arb.dashboard
 
 ---
 
-## 4. Going live (don't rush this)
+## 4. 演练 vs 实盘的差距(必读)
+
+**最容易让自动化策略翻车的事:演练赚钱、实盘亏钱。**
+原因是演练默认"看到啥都能买到、买到就 100% 成交、永远不掉单",而实盘:
+
+| 差距来源 | 演练假设 | 实盘真相 | 本 bot 怎么处理 |
+|---|---|---|---|
+| **抢单延迟** | 即时成交 | 30-90 秒延迟,别的 bot 可能先吃 | 检测后等 `VERIFICATION_DELAY_SECONDS`(默认 60s)再复查盘口 |
+| **盘口失效** | 看到的盘口都能吃 | 部分挂单是诱饵 / 已被撤 | 复查时如果 ask 已涨过限价 → 标记 MISSED |
+| **部分成交** | 全部按限价成交 | 平均只成交 50-80% | `EXPECTED_FILL_RATIO` (默认 70%) 应用三角分布 |
+| **gas + 滑点** | 0 成本 | 每笔 $0.05-0.20 | `ESTIMATED_GAS_COST_USD`(默认 $0.10) 直接扣 |
+| **逆向选择** | 卖家都"老实" | 愿意 0.96 卖的可能知道你不知道 | `ADVERSE_FILL_RATE`(默认 3%) 这些成交直接归零 |
+| **UMA 改判** | Gamma 说啥就是啥 | 偶尔会被改判 | `UMA_DISPUTE_RATE`(默认 2%) 翻转结算结果 |
+
+实战意义:
+- 看板上**"实盘预估"**列就是把这些都算进去后的预估,**比"理想"更接近你真去实盘的结果**
+- 如果实盘预估也是绿的,策略真有 edge;如果实盘预估是红的而理想是绿的,只是理论收益,不能扛真实摩擦
+- **跑一周后用真实数据校准参数**:看 verifications 表里的 `fill_rate` 是不是真的 70%,如果实际只有 50%,就改 `EXPECTED_FILL_RATIO=0.5`
+
+```sql
+-- 看实际抢单成功率
+SELECT
+  COUNT(*) AS detected,
+  SUM(would_have_filled) AS filled,
+  CAST(SUM(would_have_filled) AS FLOAT) / COUNT(*) AS fill_rate,
+  AVG(CASE WHEN would_have_filled
+           THEN verified_ask - detected_ask END) AS avg_drift_cents
+FROM verifications;
+```
+
+---
+
+## 5. Going live (don't rush this)
 
 Only after a week of dry-run output looks sane:
 
@@ -193,7 +227,7 @@ Only after a week of dry-run output looks sane:
 
 ---
 
-## 5. Known failure modes (read before going live)
+## 6. Known failure modes (read before going live)
 
 | Failure | Probability | Mitigation in code |
 |---|---|---|
@@ -207,7 +241,7 @@ Only after a week of dry-run output looks sane:
 
 ---
 
-## 6. Tuning
+## 7. Tuning
 
 Once you have 30+ dry-run observations, look at `positions.db`:
 
@@ -225,7 +259,7 @@ Things to consider tightening or loosening:
 
 ---
 
-## 7. What this bot is NOT
+## 8. What this bot is NOT
 
 - **Not a prediction strategy.** It does not try to be smarter than the market. It rides the market's own consensus during the oracle delay window.
 - **Not high-frequency.** 90-second poll loop. If you need ms-latency, this is the wrong architecture.
@@ -234,6 +268,6 @@ Things to consider tightening or loosening:
 
 ---
 
-## 8. License
+## 9. License
 
 Choose your own. Provided as-is, no warranty, do your own due diligence.
