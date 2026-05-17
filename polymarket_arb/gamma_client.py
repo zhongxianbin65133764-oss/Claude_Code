@@ -83,9 +83,15 @@ def fetch_resolving_markets(
     min_age_hours: float,
     max_age_days: float,
     page_size: int = 100,
+    min_volume_usd: float = 0.0,
 ) -> Iterator[Market]:
     """Yield markets whose event ended between (now - max_age_days)
     and (now - min_age_hours), and are still accepting orders.
+
+    Results are ordered by lifetime volume (descending) so high-quality
+    liquid markets are returned first. Most of the Gamma response at
+    any given moment is long-tail zero-volume markets that we don't
+    want anyway; min_volume_usd filters them out client-side.
 
     These are the candidates for resolution-time arbitrage: the event
     is decided but the market hasn't been settled by UMA yet, so YES
@@ -104,7 +110,7 @@ def fetch_resolving_markets(
             "offset": offset,
             "end_date_min": end_min.isoformat(),
             "end_date_max": end_max.isoformat(),
-            "order": "endDate",
+            "order": "volumeNum",
             "ascending": "false",
         }
         url = f"{gamma_base}/markets"
@@ -118,6 +124,10 @@ def fetch_resolving_markets(
             market = _parse_market(raw)
             if market is None:
                 continue
+            if market.volume_usd < min_volume_usd:
+                # We ordered by volume desc, so once we drop below the
+                # threshold we won't see any higher-volume markets.
+                return
             yield market
 
         if len(items) < page_size:

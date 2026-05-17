@@ -55,6 +55,11 @@ class Config:
     max_market_age_days: float = _env_float("MAX_MARKET_AGE_DAYS", 10.0)
     # Need at least this much depth at or below max_buy_price to bother.
     min_book_depth_usd: float = _env_float("MIN_BOOK_DEPTH_USD", 50.0)
+    # Skip markets with less than this lifetime volume. Low-volume
+    # markets are dominated by long-tail "exact score" / niche prop
+    # listings that pollute the API response and have high adverse-
+    # selection rates.
+    min_market_volume_usd: float = _env_float("MIN_MARKET_VOLUME_USD", 500.0)
 
     # ---- Sizing ----
     max_position_size_usd: float = _env_float("MAX_POSITION_SIZE_USD", 25.0)

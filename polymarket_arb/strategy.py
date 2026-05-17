@@ -69,6 +69,7 @@ def find_opportunities(config: Config) -> list[Opportunity]:
         config.gamma_base,
         config.min_market_age_hours,
         config.max_market_age_days,
+        min_volume_usd=config.min_market_volume_usd,
     ):
         market_count += 1
         ok, reason, classified = market_passes_safety(
