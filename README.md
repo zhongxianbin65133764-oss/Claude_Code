@@ -98,7 +98,40 @@ tests/                # Offline unit tests for safety/orderbook math.
 
 ## 3. Setup
 
-### 3.0 Run with Docker (recommended for long-running bots)
+### 3.0 macOS one-shot launcher (easiest path)
+
+```bash
+./scripts/mac/mac_start.sh
+```
+
+Auto-detects Docker; falls back to native Python with virtualenv +
+`caffeinate`. Includes a network reachability check so you know
+right away if Polymarket is geo-blocking your IP.
+
+After the first launch, you can also register the services as
+**LaunchAgents** so they restart at login / auto-restart on crash:
+
+```bash
+./scripts/mac/install_launchd.sh    # install
+./scripts/mac/uninstall_launchd.sh  # remove
+```
+
+The non-Mac paths below also work; this is just sugar.
+
+### 3.0.1 Network reachability check
+
+Before running anything, confirm your machine can actually reach
+Polymarket (it geo-blocks several jurisdictions):
+
+```bash
+python3 scripts/check_network.py
+```
+
+Tests Gamma + CLOB + Coinbase oracle + Polygon RPC and tells you
+exactly which paths are blocked. Uses Python stdlib only so you
+can run it before `pip install`.
+
+### 3.0.2 Run with Docker (works on any OS)
 
 ```bash
 cp .env.example .env       # confirm DRY_RUN=true
