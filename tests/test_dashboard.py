@@ -47,12 +47,16 @@ def test_dashboard_renders_with_seeded_data():
         r = client.get("/")
         assert r.status_code == 200
         body = r.get_data(as_text=True)
-        # summary numbers should appear
-        assert "Polymarket Resolution-Time Arb Bot" in body
-        assert "DRY-RUN" in body
-        assert "Lakers" in body          # open position question
-        assert "BTC close above" in body  # winning closed
-        assert "Knicks" in body           # losing closed
+        # Chinese labels should appear
+        assert "Polymarket 套利助手" in body
+        assert "演练模式" in body
+        assert "已结算盈亏" in body
+        assert "正在持有" in body
+        assert "已经结清" in body
+        # seeded questions should appear
+        assert "Lakers" in body
+        assert "BTC close above" in body
+        assert "Knicks" in body
         # PnL: +2.03 - 25.00 = -22.97
         assert "-22.97" in body
 
@@ -83,6 +87,5 @@ def test_dashboard_renders_with_empty_db():
         r = client.get("/")
         assert r.status_code == 200
         body = r.get_data(as_text=True)
-        assert "No open positions" in body
-        assert "No closed positions yet" in body
-        assert "No trades yet" in body
+        assert "目前没有持仓" in body
+        assert "还没有结清的交易" in body
