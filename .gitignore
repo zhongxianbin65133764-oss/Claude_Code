@@ -15,3 +15,4 @@ arb_bot.log
 
 # Generated artifacts
 docs/*.pdf
+docs/manual_deck/*.pdf
