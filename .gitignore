@@ -1,0 +1,14 @@
+.env
+*.pyc
+__pycache__/
+*.db
+*.sqlite
+*.log
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.idea/
+.vscode/
+positions.db
+arb_bot.log

@@ -1,0 +1,48 @@
+# Polymarket Arb Bot — local two-service stack.
+#
+# Quick start:
+#   1. cp .env.example .env  (edit DRY_RUN, credentials, etc.)
+#   2. docker-compose up -d
+#   3. open http://localhost:5000
+#
+# Both services share the ./data volume so the dashboard reads the
+# DB the bot writes. The bot will continue running across host
+# reboots thanks to restart: unless-stopped.
+
+services:
+  bot:
+    build: .
+    image: polymarket-arb:latest
+    container_name: polymarket-arb-bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    # Limit memory so a runaway process can't take down the host.
+    mem_limit: 512m
+    cpus: 0.5
+    # Don't expose any port; the bot talks out only.
+
+  dashboard:
+    build: .
+    image: polymarket-arb:latest
+    container_name: polymarket-arb-dashboard
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    ports:
+      - "5000:5000"
+    command: ["python", "-m", "polymarket_arb.dashboard",
+              "--host", "0.0.0.0", "--port", "5000"]
+    depends_on:
+      - bot
+    healthcheck:
+      test: ["CMD-SHELL",
+             "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/api/summary', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 256m
+    cpus: 0.25

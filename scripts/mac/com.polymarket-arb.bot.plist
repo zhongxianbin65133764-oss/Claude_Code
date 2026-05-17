@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template. Do NOT install this file as-is — run scripts/mac/install_launchd.sh
+  which substitutes {{PROJECT_DIR}} with your actual path before installing.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.polymarket-arb.bot</string>
+
+    <key>WorkingDirectory</key>
+    <string>{{PROJECT_DIR}}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PROJECT_DIR}}/.venv/bin/python</string>
+        <string>-m</string>
+        <string>polymarket_arb.main</string>
+    </array>
+
+    <!-- Start at login, restart on crash. -->
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+
+    <!-- Wait 30s between crashes so we don't hammer a broken setup. -->
+    <key>ThrottleInterval</key><integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{PROJECT_DIR}}/data/bot.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{PROJECT_DIR}}/data/bot.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- Keep the Mac from idle-sleeping while we run. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
