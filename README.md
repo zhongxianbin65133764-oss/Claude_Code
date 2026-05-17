@@ -98,7 +98,31 @@ tests/                # Offline unit tests for safety/orderbook math.
 
 ## 3. Setup
 
-### 3.1 Install
+### 3.0 Run with Docker (recommended for long-running bots)
+
+```bash
+cp .env.example .env       # confirm DRY_RUN=true
+mkdir -p data
+docker-compose up -d        # bot + dashboard, restart-on-failure
+open http://localhost:5000
+```
+
+The compose file ships two services — `bot` runs the main loop,
+`dashboard` exposes the web UI on port 5000. Both share `./data` so
+`positions.db` survives container restarts. Memory limits (512MB bot,
+256MB dashboard) prevent a runaway process from taking down the host.
+
+To see logs:
+```bash
+docker-compose logs -f bot
+```
+
+To stop:
+```bash
+docker-compose down
+```
+
+### 3.1 Install (no Docker)
 
 ```bash
 python3 -m venv .venv
@@ -149,7 +173,24 @@ to evaluate hit rate, realistic PnL, and which markets it would have caught.
 python -m pytest tests/ -v
 ```
 
-### 3.5 Dashboard
+### 3.5 Live smoke test (one-shot, read-only)
+
+Before committing to a multi-day run, do a 30-second sanity check
+against the real APIs:
+
+```bash
+python scripts/live_smoke_test.py --limit 30
+```
+
+For each candidate market it shows: classifier verdict, oracle
+verdict for crypto, per-side book ask + accept-or-reject reason,
+and which sides would queue. Ends with rejection-reason breakdown
+and subcategory distribution. **Does not write to DB, does not
+place orders.**
+
+Flags: `--no-color`, `--no-oracle`, `--no-book` (faster, less info).
+
+### 3.6 Dashboard
 
 In a separate terminal:
 
@@ -288,7 +329,31 @@ winning side, we:
 This essentially eliminates UMA dispute risk on crypto markets.
 Implementation in `polymarket_arb/price_oracle.py`.
 
-### 7.3 Tuning thresholds
+### 7.3 Fine-grained classifier (`polymarket_arb/question_classifier.py`)
+
+Beyond the two whitelisted subcategories, the classifier also tags:
+- `weather` — temperature / rainfall / earthquake markets (rejected)
+- `politics` — primaries / nominations / elections (rejected)
+- `speech_event` — "Will X say Y" / "Will X tweet Z" (rejected,
+  highly subjective)
+- `event_moneyline` — generic "Will X win Y" pattern, covers
+  non-US-league sports and esports tournaments. **NOT in default
+  whitelist** because dispute rates are unknown. Opt in by editing
+  `DEFAULT_SAFE_SUBCATEGORIES` in `question_classifier.py` once you've
+  verified the dispute rate on a sample of these markets in your
+  dry-run data.
+
+### 7.4 Adaptive scan interval
+
+When `ADAPTIVE_SCAN_ENABLED=true`, the bot scans every
+`HIGH_ACTIVITY_INTERVAL_SECONDS` (default 30s) during the UTC hours
+in `HIGH_ACTIVITY_HOURS_UTC` (default `0,1,2,18,19,20,21,22,23` —
+crypto daily-close + US sports primetime) and every
+`LOW_ACTIVITY_INTERVAL_SECONDS` (default 300s) otherwise. This is a
+~70% reduction in API + network cost during dead hours while keeping
+detection latency low when the action happens.
+
+### 7.5 Tuning thresholds
 
 Once you have 30+ dry-run observations, look at `positions.db`:
 

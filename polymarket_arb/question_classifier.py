@@ -16,9 +16,14 @@ regex, returning:
 Subcategories and their typical UMA dispute rates (rough estimates):
   crypto_price      ~0.1%    mechanically resolvable from price feed
   team_moneyline    ~0.3%    'A beat B' is unambiguous in major leagues
+  event_moneyline   ~0.5-2%  'Will X win Y?' generic — non-US sports,
+                             esports tournaments; opt-in via config
   team_score        ~1-2%    spreads can have edge-case rounding
   player_prop       ~5-10%   stat definitions, time-on-court rules
   sports_event      ~3-5%    cancellations, weather, injury rules
+  weather           ~2-5%    station selection, time-of-measurement
+  politics          ~5-15%   primary rules, party affiliation changes
+  speech_event      ~10-20%  "Will X say Y" — subjective wording
   other             unknown  -> reject by default
 """
 from __future__ import annotations
@@ -81,6 +86,57 @@ SUBJECTIVE_PATTERNS = [
                r"declared|judged|ruled)\b", re.I),
     re.compile(r"\b(controversy|controversial|disputed|"
                r"investigation|investigated)\b", re.I),
+]
+
+# Markets that boil down to "will X say a specific phrase" — these
+# are notorious for boundary-case disputes (transcript ambiguity,
+# paraphrasing, deletion).
+SPEECH_PATTERNS = [
+    re.compile(r"\bwill\s+[\w\s.-]{2,50}\s+say\s+", re.I),
+    re.compile(r"\bwill\s+[\w\s.-]{2,50}\s+(tweet|post|mention|"
+               r"endorse|announce|admit|confirm|deny)\b", re.I),
+]
+
+# Weather markets — different stations / measurement-windows produce
+# disputes; high-frequency strategies skip these unless they have a
+# physical-model edge.
+WEATHER_PATTERNS = [
+    re.compile(r"\b(highest|lowest|max|min|maximum|minimum|average|mean)?"
+               r"\s*(temperature|temp)\b", re.I),
+    re.compile(r"\b\d+\s*°[CF]\b", re.I),
+    re.compile(r"\b(rain|rainfall|snow|snowfall|hurricane|tornado|"
+               r"typhoon|earthquake|magnitude)\b", re.I),
+]
+
+# Politics / election markets — primary rules, party affiliation
+# changes, withdrawal definitions all create dispute risk.
+POLITICS_PATTERNS = [
+    re.compile(r"\b(president|presidency|prime\s+minister|chancellor|"
+               r"governor|senator|congressman|representative|mayor|"
+               r"nominee|nomination|primary|election|elected|"
+               r"electoral|incumbent|seat|caucus|ballot)\b", re.I),
+    re.compile(r"\b(republican|democrat|democratic|labour|tory|"
+               r"conservative)\s+(nominee|primary|candidate|party)\b", re.I),
+    re.compile(r"\bnext\s+(president|prime\s+minister|chancellor|"
+               r"speaker|leader)\b", re.I),
+]
+
+# Generic moneyline pattern: "Will <Subject> win <something>?"
+# Used after we've excluded weather/politics/speech/player-prop, so
+# this catches non-US-league sports moneylines and esports.
+EVENT_MONEYLINE_PATTERNS = [
+    # "Will the X win on YYYY-MM-DD?" / "Will X win on May 17?"
+    re.compile(
+        r"^\s*will\s+(?:the\s+)?[\w\s\.&\-]{2,60}\s+win\s+"
+        r"(?:on|in|by)\s+",
+        re.I,
+    ),
+    # "Will X win the Championship/Cup/Tournament/Y 2026?"
+    re.compile(
+        r"^\s*will\s+(?:the\s+)?[\w\s\.&\-]{2,60}\s+win\s+(?:the\s+)?"
+        r"[\w\s\.&\-]{2,60}\??\s*$",
+        re.I,
+    ),
 ]
 
 
@@ -227,31 +283,90 @@ def _classify_sports(question: str) -> ClassifiedMarket | None:
 # Public entry point
 # ---------------------------------------------------------------------------
 
+def _classify_event_moneyline(question: str) -> ClassifiedMarket | None:
+    """Generic 'Will X win Y?' fallback for non-US-league sports
+    and esports tournaments. Confidence 'medium' because we don't
+    actually know what X and Y are — could be a niche league."""
+    for pat in EVENT_MONEYLINE_PATTERNS:
+        if pat.search(question):
+            return ClassifiedMarket(
+                subcategory="event_moneyline",
+                confidence="medium",
+                notes="generic 'will X win Y' pattern",
+            )
+    return None
+
+
+def _matches_any(question: str, patterns) -> bool:
+    return any(p.search(question) for p in patterns)
+
+
 def classify(
     question: str,
     fallback_year: int | None = None,
 ) -> ClassifiedMarket:
     """Classify a market question. Always returns a ClassifiedMarket;
-    falls back to subcategory='other' if no pattern matches."""
+    falls back to subcategory='other' if no pattern matches.
+
+    Detection order (most specific first):
+      1. Empty/junk
+      2. Subjective language       -> other
+      3. Speech / 'will X say'     -> speech_event
+      4. Weather / temperature     -> weather
+      5. Politics / elections      -> politics
+      6. Crypto price w/ ticker    -> crypto_price
+      7. Sports player prop        -> player_prop
+      8. Major-league moneyline    -> team_moneyline
+      9. Generic 'will X win Y'    -> event_moneyline
+     10. Single team, no verb      -> sports_event
+     11. Everything else           -> other
+    """
     if fallback_year is None:
         fallback_year = datetime.utcnow().year
     if not question:
         return ClassifiedMarket(subcategory="other", confidence="low",
                                 notes="empty question")
 
-    # Subjective-language guard
-    for p in SUBJECTIVE_PATTERNS:
-        if p.search(question):
-            return ClassifiedMarket(
-                subcategory="other", confidence="low",
-                notes="subjective resolution language",
-            )
+    if _matches_any(question, SUBJECTIVE_PATTERNS):
+        return ClassifiedMarket(
+            subcategory="other", confidence="low",
+            notes="subjective resolution language",
+        )
+
+    if _matches_any(question, SPEECH_PATTERNS):
+        return ClassifiedMarket(
+            subcategory="speech_event", confidence="high",
+            notes="transcript / posting ambiguity",
+        )
+
+    if _matches_any(question, WEATHER_PATTERNS):
+        return ClassifiedMarket(
+            subcategory="weather", confidence="high",
+            notes="station and time-window risk",
+        )
+
+    if _matches_any(question, POLITICS_PATTERNS):
+        return ClassifiedMarket(
+            subcategory="politics", confidence="high",
+            notes="primary/ballot rule risk",
+        )
 
     cp = _classify_crypto(question, fallback_year)
     if cp:
         return cp
 
     sp = _classify_sports(question)
+    if sp and sp.subcategory == "player_prop":
+        return sp
+    if sp and sp.subcategory == "team_moneyline":
+        return sp
+
+    # Generic moneyline (non-whitelist teams, esports, etc.)
+    em = _classify_event_moneyline(question)
+    if em:
+        return em
+
+    # Fall back to single-team event detection
     if sp:
         return sp
 

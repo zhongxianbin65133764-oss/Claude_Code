@@ -5,8 +5,9 @@ import logging
 import signal
 import sys
 import time
+from datetime import datetime, timezone
 
-from .config import CONFIG
+from .config import CONFIG, Config
 from .executor import Executor
 from .friction import FrictionModel, VerificationQueue
 from .position_store import PositionStore
@@ -16,6 +17,17 @@ from .strategy import (
     handle_opportunity,
     process_verification_queue,
 )
+
+
+def get_scan_interval(config: Config, now_utc: datetime) -> tuple[float, str]:
+    """Return (seconds_to_sleep, mode_label)."""
+    if not config.adaptive_scan_enabled:
+        return config.scan_interval_seconds, "fixed"
+    hours = {int(h.strip()) for h in config.high_activity_hours_utc.split(",")
+             if h.strip().isdigit()}
+    if now_utc.hour in hours:
+        return config.high_activity_interval_seconds, "high"
+    return config.low_activity_interval_seconds, "low"
 
 
 def _setup_logging(log_path: str) -> None:
@@ -52,7 +64,13 @@ def main() -> int:
     log.info("  max market age      : %.1f days", CONFIG.max_market_age_days)
     log.info("  max position size   : $%.2f", CONFIG.max_position_size_usd)
     log.info("  max total exposure  : $%.2f", CONFIG.max_total_exposure_usd)
-    log.info("  scan interval       : %.0fs", CONFIG.scan_interval_seconds)
+    if CONFIG.adaptive_scan_enabled:
+        log.info("  scan interval       : adaptive (hi=%.0fs / lo=%.0fs, hi-hours=%s UTC)",
+                 CONFIG.high_activity_interval_seconds,
+                 CONFIG.low_activity_interval_seconds,
+                 CONFIG.high_activity_hours_utc)
+    else:
+        log.info("  scan interval       : %.0fs (fixed)", CONFIG.scan_interval_seconds)
     if CONFIG.dry_run:
         log.info("  --- realism layer ---")
         log.info("  verify delay        : %.0fs", CONFIG.verification_delay_seconds)
@@ -110,15 +128,17 @@ def main() -> int:
 
         # 4. Status snapshot.
         exposure = store.open_exposure_usd()
+        interval, mode = get_scan_interval(CONFIG, datetime.now(timezone.utc))
         log.info(
-            "status: exposure $%.2f / $%.2f | %d in verification queue",
+            "status: exposure $%.2f / $%.2f | queue=%d | next scan in %.0fs (%s)",
             exposure, CONFIG.max_total_exposure_usd, len(queue),
+            interval, mode,
         )
 
         if _STOP:
             break
         elapsed = time.monotonic() - loop_start
-        sleep_for = max(5.0, CONFIG.scan_interval_seconds - elapsed)
+        sleep_for = max(5.0, interval - elapsed)
         for _ in range(int(sleep_for)):
             if _STOP:
                 break

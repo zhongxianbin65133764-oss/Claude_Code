@@ -68,6 +68,23 @@ class Config:
     # ---- Loop ----
     scan_interval_seconds: float = _env_float("SCAN_INTERVAL_SECONDS", 90.0)
 
+    # Adaptive scanning: scan aggressively during high-activity UTC
+    # hours, lazily otherwise. Saves network + gas in dead periods.
+    # Disabled by default to preserve existing behaviour.
+    adaptive_scan_enabled: bool = _env_bool("ADAPTIVE_SCAN_ENABLED", False)
+    # During these UTC hours, scan at high_activity_interval_seconds.
+    # Defaults cover crypto daily-close (UTC 0-2) and US sports
+    # primetime (UTC 18-23 = 1pm-6pm ET).
+    high_activity_hours_utc: str = os.getenv(
+        "HIGH_ACTIVITY_HOURS_UTC", "0,1,2,18,19,20,21,22,23",
+    )
+    high_activity_interval_seconds: float = _env_float(
+        "HIGH_ACTIVITY_INTERVAL_SECONDS", 30.0,
+    )
+    low_activity_interval_seconds: float = _env_float(
+        "LOW_ACTIVITY_INTERVAL_SECONDS", 300.0,
+    )
+
     # ---- Storage ----
     db_path: str = os.getenv("DB_PATH", "positions.db")
     log_path: str = os.getenv("LOG_PATH", "arb_bot.log")
