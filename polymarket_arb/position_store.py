@@ -157,6 +157,67 @@ class PositionStore:
             ).fetchall()
         return [self._row_to_position(r) for r in rows]
 
+    def closed_positions(self, limit: int | None = None) -> list[Position]:
+        sql = "SELECT * FROM positions WHERE resolved=1 ORDER BY closed_at DESC"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+        with self._conn() as c:
+            rows = c.execute(sql).fetchall()
+        return [self._row_to_position(r) for r in rows]
+
+    def cumulative_pnl_series(self) -> list[tuple[str, float]]:
+        """Return [(closed_at_iso, cumulative_pnl_usd), ...] chronologically."""
+        with self._conn() as c:
+            rows = c.execute(
+                """SELECT closed_at, (payout_usd - cost_usd) AS pnl
+                   FROM positions
+                   WHERE resolved=1 AND closed_at IS NOT NULL
+                   ORDER BY closed_at"""
+            ).fetchall()
+        series: list[tuple[str, float]] = []
+        running = 0.0
+        for r in rows:
+            running += float(r["pnl"])
+            series.append((r["closed_at"], running))
+        return series
+
+    def recent_trades(self, limit: int = 50) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM trades ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def summary(self) -> dict:
+        with self._conn() as c:
+            open_row = c.execute(
+                """SELECT COUNT(*) AS n, COALESCE(SUM(cost_usd), 0) AS exposure
+                   FROM positions WHERE resolved=0"""
+            ).fetchone()
+            closed_row = c.execute(
+                """SELECT COUNT(*) AS n,
+                          COALESCE(SUM(cost_usd), 0) AS cost,
+                          COALESCE(SUM(payout_usd), 0) AS payout,
+                          SUM(CASE WHEN payout_usd > cost_usd THEN 1 ELSE 0 END) AS wins
+                   FROM positions WHERE resolved=1"""
+            ).fetchone()
+        cost = float(closed_row["cost"])
+        payout = float(closed_row["payout"])
+        pnl = payout - cost
+        n_closed = int(closed_row["n"])
+        wins = int(closed_row["wins"] or 0)
+        return {
+            "open_count": int(open_row["n"]),
+            "open_exposure": float(open_row["exposure"]),
+            "closed_count": n_closed,
+            "realized_cost": cost,
+            "realized_payout": payout,
+            "realized_pnl": pnl,
+            "win_rate": (wins / n_closed) if n_closed else 0.0,
+            "avg_return_pct": ((pnl / cost) * 100) if cost else 0.0,
+        }
+
     @staticmethod
     def _row_to_position(r: sqlite3.Row) -> Position:
         return Position(

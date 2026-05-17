@@ -147,6 +147,32 @@ to evaluate hit rate and which markets it would have caught.
 python -m pytest tests/ -v
 ```
 
+### 3.5 Dashboard
+
+In a separate terminal:
+
+```bash
+python -m polymarket_arb.dashboard          # http://127.0.0.1:5000
+# or bind to all interfaces / different port:
+python -m polymarket_arb.dashboard --host 0.0.0.0 --port 8080
+```
+
+The dashboard reads the same `positions.db` the bot writes, so you can
+run both side by side. It shows:
+
+- summary cards (open count, exposure, closed count, realized PnL, win rate, avg return)
+- cumulative realized PnL line chart
+- open positions table (with hours-since-opened)
+- closed positions table (last 30, with PnL, return %, days held)
+- recent trades log (last 50, BUY + SETTLE actions)
+
+To preview without running the bot, seed synthetic data:
+
+```bash
+python scripts/seed_demo_data.py            # writes 3 open + 8 closed
+python -m polymarket_arb.dashboard
+```
+
 ---
 
 ## 4. Going live (don't rush this)
